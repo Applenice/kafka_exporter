@@ -31,6 +31,7 @@ const (
 
 var (
 	clusterBrokers                     *prometheus.Desc
+	clusterBrokerMembers               *prometheus.Desc
 	topicPartitions                    *prometheus.Desc
 	topicCurrentOffset                 *prometheus.Desc
 	topicOldestOffset                  *prometheus.Desc
@@ -218,6 +219,7 @@ func NewExporter(opts kafkaOpts, topicFilter string, groupFilter string) (*Expor
 // implements prometheus.Collector.
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- clusterBrokers
+	ch <- clusterBrokerMembers
 	ch <- topicCurrentOffset
 	ch <- topicOldestOffset
 	ch <- topicPartitions
@@ -244,7 +246,6 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	offset := make(map[string]map[int32]int64)
 
 	now := time.Now()
-
 	if now.After(e.nextMetadataRefresh) {
 		plog.Info("Refreshing client metadata")
 
@@ -468,6 +469,10 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 	if len(e.client.Brokers()) > 0 {
 		for _, broker := range e.client.Brokers() {
+			ch <- prometheus.MustNewConstMetric(
+				clusterBrokerMembers, prometheus.GaugeValue, float64(broker.ID()), broker.Addr(),
+			)
+
 			wg.Add(1)
 			go getConsumerGroupMetrics(broker)
 		}
@@ -534,6 +539,13 @@ func main() {
 		"Number of Brokers in the Kafka Cluster.",
 		nil, labels,
 	)
+
+	clusterBrokerMembers = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, "cluster", "members"),
+		"List of Members for this cluster",
+		[]string{"member"}, labels,
+	)
+
 	topicPartitions = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "topic", "partitions"),
 		"Number of partitions for this Topic",
